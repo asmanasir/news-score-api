@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using NewsScope.Api.Services;
+using NewsScope.Api.Strategies;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +17,10 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 builder.Services.AddScoped<INewsScoreService, NewsScoreService>();
+builder.Services.AddScoped<IMeasurementScoreStrategy, TemperatureScoreStrategy>();
+builder.Services.AddScoped<IMeasurementScoreStrategy, HeartRateScoreStrategy>();
+builder.Services.AddScoped<IMeasurementScoreStrategy, RespiratoryRateScoreStrategy>();
+
 
 var app = builder.Build();
 
@@ -26,7 +31,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
+//app.UseHttpsRedirection();
 app.MapControllers();
 
 app.Run();

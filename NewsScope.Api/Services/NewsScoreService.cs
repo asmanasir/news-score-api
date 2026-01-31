@@ -1,95 +1,60 @@
 using NewsScope.Api.Models;
+using NewsScope.Api.Strategies;
 
 namespace NewsScope.Api.Services;
 
 public class NewsScoreService : INewsScoreService
 {
+    private readonly Dictionary<MeasurementType, IMeasurementScoreStrategy> _strategies;
+
+    public NewsScoreService(IEnumerable<IMeasurementScoreStrategy> strategies)
+    {
+           _strategies = strategies.ToDictionary(s => s.Type);
+    }
+
     public int CalculateScore(NewsRequestDto request)
     {
-        ValidateRequest(request);
+        Validate(request);
 
-        int totalScore = 0;
-
-        foreach (var measurement in request.Measurements)
-        {
-            totalScore += CalculateMeasurementScore(measurement);
-        }
-
-        return totalScore;
+        return request.Measurements.Sum(m =>
+            _strategies[m.Type].CalculateScore(m.Value)
+        );
     }
 
-    private static void ValidateRequest(NewsRequestDto request)
+    private void Validate(NewsRequestDto request)
     {
-        if (request.Measurements == null || request.Measurements.Count == 0)
+        if (request?.Measurements == null || !request.Measurements.Any())
+        {
             throw new ArgumentException("Measurements are required.");
+        }
+        
+        var incomingTypes = request.Measurements
+            .Select(m => m.Type)
+            .ToHashSet();
 
-        var requiredTypes = new[]
+        if (incomingTypes.Count != request.Measurements.Count)
         {
-            MeasurementType.TEMP,
-            MeasurementType.HR,
-            MeasurementType.RR
-        };
-
-        foreach (var type in requiredTypes)
-        {
-            if (!request.Measurements.Any(m => m.Type == type))
-                throw new ArgumentException($"Missing measurement: {type}");
+            throw new ArgumentException("Duplicate measurement types are not allowed.");
         }
 
-        var duplicateTypes = request.Measurements
-            .GroupBy(m => m.Type)
-            .Where(g => g.Count() > 1);
+        var missingTypes = _strategies.Keys
+            .Where(required => !incomingTypes.Contains(required))
+            .ToList();
 
-        if (duplicateTypes.Any())
-            throw new ArgumentException("Duplicate measurement types are not allowed.");
-    }
-
-    private static readonly List<ScoreRange> TempRules = new()
-    {
-        new(31, 35, 3),
-        new(35, 36, 1),
-        new(36, 38, 0),
-        new(38, 39, 1),
-        new(39, 42, 2),
-    };
-
-    private static readonly List<ScoreRange> HrRules = new()
-    {
-        new(25, 40, 3),
-        new(40, 50, 1),
-        new(50, 90, 0),
-        new(90, 110, 1),
-        new(110, 130, 2),
-        new(130, 220, 3),
-    };
-
-    private static readonly List<ScoreRange> RrRules = new()
-    {
-        new(3, 8, 3),
-        new(8, 11, 1),
-        new(11, 20, 0),
-        new(20, 24, 2),
-        new(24, 60, 3),
-    };
-
-    private static int CalculateMeasurementScore(MeasurementDto measurement)
-    {
-        var rules = measurement.Type switch
+        if (missingTypes.Any())
         {
-            MeasurementType.TEMP => TempRules,
-            MeasurementType.HR => HrRules,
-            MeasurementType.RR => RrRules,
-            _ => throw new ArgumentOutOfRangeException()
-        };
+            var missingList = string.Join(", ", missingTypes);
+            throw new ArgumentException($"Missing required measurements: {missingList}");
+        }
 
-        var rule = rules.FirstOrDefault(r =>
-            measurement.Value > r.MinExclusive &&
-            measurement.Value <= r.MaxInclusive);
+        var unsupportedTypes = incomingTypes
+            .Where(t => !_strategies.ContainsKey(t))
+            .ToList();
 
-        if (rule == null)
-            throw new ArgumentException(
-                $"Invalid value {measurement.Value} for {measurement.Type}");
-
-        return rule.Score;
+        if (unsupportedTypes.Any())
+        {
+            var unsupportedList = string.Join(", ", unsupportedTypes);
+            throw new ArgumentException($"Measurements contain unsupported types: {unsupportedList}");
+        }
     }
 }
